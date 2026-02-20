@@ -216,7 +216,7 @@ function generateApiKey() {
   const randomPart =
     Math.random().toString(36).substring(2, 10) +
     Math.random().toString(36).substring(2, 10);
-  return `VPedia_${randomPart}`;
+  return `Rikyshop_${randomPart}`;
 }
 
 function generateReferralCode(username) {
