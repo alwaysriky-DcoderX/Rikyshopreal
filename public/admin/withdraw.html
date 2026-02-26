@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Withdraw Saldo • Riky Shop</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+}
+
+body{
+  margin:0;
+  background:#f1f5f9;
+}
+
+/* CONTAINER */
+.container{
+  max-width:420px;
+  margin:auto;
+  padding:20px 16px 40px;
+}
+
+/* CARD */
+.card{
+  background:white;
+  border-radius:16px;
+  padding:20px;
+  margin-bottom:16px;
+  box-shadow:0 8px 25px rgba(0,0,0,0.06);
+}
+
+/* TITLE */
+.title{
+  font-size:18px;
+  font-weight:600;
+  margin-bottom:15px;
+}
+
+/* SALDO */
+.balance-box{
+  text-align:center;
+  padding:25px 20px;
+  background:linear-gradient(135deg,#2563eb,#60a5fa);
+  color:white;
+  border-radius:14px;
+}
+
+.balance-box small{
+  opacity:.9;
+}
+
+.balance-box h2{
+  margin:6px 0 0;
+  font-size:28px;
+  font-weight:700;
+}
+
+/* INPUT */
+select,input{
+  width:100%;
+  padding:14px;
+  margin-top:10px;
+  border-radius:10px;
+  border:1px solid #e5e7eb;
+  font-size:15px;
+  transition:all .2s;
+}
+
+select:focus,input:focus{
+  outline:none;
+  border-color:#2563eb;
+  box-shadow:0 0 0 3px rgba(37,99,235,0.1);
+}
+
+/* BUTTON */
+button{
+  width:100%;
+  padding:14px;
+  border:none;
+  border-radius:10px;
+  margin-top:14px;
+  font-size:15px;
+  font-weight:600;
+  color:white;
+  background:linear-gradient(135deg,#2563eb,#1d4ed8);
+  cursor:pointer;
+  transition:.2s;
+}
+
+button:hover{
+  transform:translateY(-1px);
+  box-shadow:0 6px 18px rgba(37,99,235,0.25);
+}
+
+/* SUCCESS */
+.success-box{
+  display:none;
+  margin-top:12px;
+  padding:12px;
+  border-radius:10px;
+  background:#ecfdf5;
+  color:#16a34a;
+  text-align:center;
+  font-weight:500;
+  animation:pop .3s ease;
+}
+
+@keyframes pop{
+  from{transform:scale(.9);opacity:0}
+  to{transform:scale(1);opacity:1}
+}
+
+/* HISTORY */
+.history-item{
+  padding:12px 0;
+  border-bottom:1px solid #eee;
+}
+
+.badge{
+  padding:4px 8px;
+  border-radius:6px;
+  font-size:12px;
+  font-weight:600;
+}
+
+.pending{ background:#fef9c3; color:#92400e }
+.success{ background:#dcfce7; color:#166534 }
+.failed{ background:#fee2e2; color:#991b1b }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<!-- SALDO -->
+<div class="card balance-box">
+  <small>Saldo Anda</small>
+  <h2 id="saldoText">Memuat...</h2>
+</div>
+
+<!-- FORM -->
+<div class="card">
+  <div class="title">Withdraw Dana</div>
+
+  <select id="metode">
+    <option value="">Pilih Metode</option>
+
+    <optgroup label="E-WALLET">
+      <option value="DANA">DANA</option>
+      <option value="OVO">OVO</option>
+      <option value="GOPAY">GOPAY</option>
+      <option value="SHOPEEPAY">SHOPEEPAY</option>
+    </optgroup>
+
+    <optgroup label="BANK">
+      <option value="BCA">BANK BCA</option>
+      <option value="BRI">BANK BRI</option>
+      <option value="MANDIRI">BANK MANDIRI</option>
+      <option value="BNI">BANK BNI</option>
+    </optgroup>
+  </select>
+
+  <input id="tujuan" placeholder="Nomor rekening / ewallet">
+  <input id="nominal" type="number" placeholder="Nominal withdraw">
+
+  <button onclick="submitWithdraw()">Withdraw Sekarang</button>
+
+  <div class="success-box" id="successBox">
+    ✓ Withdraw berhasil dibuat
+  </div>
+</div>
+
+<!-- HISTORY -->
+<div class="card">
+  <div class="title">Riwayat Withdraw</div>
+  <div id="historyList">Memuat...</div>
+</div>
+
+</div>
+
+<script>
+const saldoText = document.getElementById("saldoText")
+const historyList = document.getElementById("historyList")
+const successBox = document.getElementById("successBox")
+
+async function loadUser(){
+  const res = await fetch("/user/me")
+  const data = await res.json()
+  if(!data.success) return
+
+  saldoText.innerText =
+    "Rp " + Number(data.saldo).toLocaleString("id-ID")
+
+  if(!data.historyWithdraw || data.historyWithdraw.length===0){
+    historyList.innerHTML="Belum ada withdraw"
+  }else{
+    historyList.innerHTML = data.historyWithdraw.reverse().map(w=>`
+      <div class="history-item">
+        <strong>Rp ${Number(w.nominal).toLocaleString("id-ID")}</strong><br>
+        ${w.metode} → ${w.tujuan}<br>
+        <span class="badge ${w.status}">${w.status}</span>
+      </div>
+    `).join("")
+  }
+}
+
+function validasiTujuan(metode, tujuan){
+  if(["DANA","OVO","GOPAY","SHOPEEPAY"].includes(metode))
+    return /^[0-9]{10,15}$/.test(tujuan)
+  return tujuan.length >= 6
+}
+
+async function submitWithdraw(){
+  const metode = document.getElementById("metode").value
+  const tujuan = document.getElementById("tujuan").value
+  const nominal = document.getElementById("nominal").value
+
+  if(!metode) return alert("Pilih metode withdraw")
+  if(!validasiTujuan(metode, tujuan)) return alert("Nomor tujuan tidak valid")
+  if(nominal < 10000) return alert("Minimal withdraw Rp10.000")
+
+  const res = await fetch("/withdraw/create",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ metode, tujuan, nominal })
+  })
+
+  const result = await res.json()
+
+  if(!result.success) return alert(result.message)
+
+  successBox.style.display="block"
+  saldoText.innerText =
+    "Rp " + Number(result.saldo).toLocaleString("id-ID")
+
+  document.getElementById("nominal").value=""
+  document.getElementById("tujuan").value=""
+
+  loadUser()
+  setTimeout(()=>successBox.style.display="none",3000)
+}
+
+loadUser()
+setInterval(loadUser,10000)
+</script>
+
+</body>
+</html>
