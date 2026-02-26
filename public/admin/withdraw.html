@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Withdraw Saldo</title>
+
+<style>
+body{
+  font-family: Arial, sans-serif;
+  background:#f4f6f9;
+  padding:30px;
+}
+
+.container{
+  max-width:500px;
+  margin:auto;
+}
+
+.card{
+  background:white;
+  border-radius:12px;
+  padding:20px;
+  margin-bottom:20px;
+  box-shadow:0 4px 10px rgba(0,0,0,0.05);
+}
+
+.balance-box{
+  text-align:center;
+}
+
+.balance-box h3{
+  color:#16a34a;
+  font-size:28px;
+}
+
+select,input{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border-radius:8px;
+  border:1px solid #ddd;
+}
+
+button{
+  width:100%;
+  padding:14px;
+  border:none;
+  border-radius:8px;
+  background:#2563eb;
+  color:white;
+  font-size:16px;
+  margin-top:15px;
+  cursor:pointer;
+}
+
+button:hover{
+  background:#1d4ed8;
+}
+
+.success-box{
+  display:none;
+  background:#ecfdf5;
+  color:#16a34a;
+  padding:12px;
+  border-radius:8px;
+  margin-top:15px;
+  text-align:center;
+  animation:pop 0.4s ease;
+}
+
+@keyframes pop{
+  from{transform:scale(0.8);opacity:0}
+  to{transform:scale(1);opacity:1}
+}
+
+.history-item{
+  padding:10px;
+  border-bottom:1px solid #eee;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<!-- SALDO -->
+<div class="card balance-box">
+  Saldo Anda
+  <h3 id="saldoText">Memuat...</h3>
+</div>
+
+<!-- FORM -->
+<div class="card">
+  <h3>Withdraw Dana</h3>
+
+  <select id="metode">
+    <option value="">Pilih Metode</option>
+
+    <optgroup label="E-WALLET">
+      <option value="DANA">DANA</option>
+      <option value="OVO">OVO</option>
+      <option value="GOPAY">GOPAY</option>
+      <option value="SHOPEEPAY">SHOPEEPAY</option>
+    </optgroup>
+
+    <optgroup label="BANK">
+      <option value="BCA">BANK BCA</option>
+      <option value="BRI">BANK BRI</option>
+      <option value="MANDIRI">BANK MANDIRI</option>
+      <option value="BNI">BANK BNI</option>
+    </optgroup>
+  </select>
+
+  <input id="tujuan" placeholder="Nomor rekening / ewallet">
+  <input id="nominal" type="number" placeholder="Nominal withdraw">
+
+  <button onclick="submitWithdraw()">Withdraw Sekarang</button>
+
+  <div class="success-box" id="successBox">
+    ✅ Withdraw berhasil diproses
+  </div>
+</div>
+
+<!-- HISTORY -->
+<div class="card">
+  <h3>Riwayat Withdraw</h3>
+  <div id="historyList">Memuat...</div>
+</div>
+
+</div>
+
+<script>
+const saldoText = document.getElementById("saldoText")
+const historyList = document.getElementById("historyList")
+const successBox = document.getElementById("successBox")
+
+// ===== LOAD USER DATA =====
+async function loadUser(){
+  const res = await fetch("/user/me")
+  const data = await res.json()
+
+  if(!data.success) return
+
+  saldoText.innerText =
+    "Rp " + Number(data.saldo).toLocaleString("id-ID")
+
+  if(!data.historyWithdraw || data.historyWithdraw.length===0){
+    historyList.innerHTML="Belum ada withdraw"
+  }else{
+    historyList.innerHTML = data.historyWithdraw.reverse().map(w=>`
+      <div class="history-item">
+        <strong>Rp ${Number(w.nominal).toLocaleString("id-ID")}</strong><br>
+        ${w.metode} → ${w.tujuan}<br>
+        Status: <b>${w.status}</b>
+      </div>
+    `).join("")
+  }
+}
+
+// ===== VALIDASI NOMOR =====
+function validasiTujuan(metode, tujuan){
+  if(!tujuan) return false
+
+  if(["DANA","OVO","GOPAY","SHOPEEPAY"].includes(metode)){
+    return /^[0-9]{10,15}$/.test(tujuan)
+  }
+
+  return tujuan.length >= 6
+}
+
+// ===== SUBMIT WITHDRAW =====
+async function submitWithdraw(){
+  const metode = document.getElementById("metode").value
+  const tujuan = document.getElementById("tujuan").value
+  const nominal = document.getElementById("nominal").value
+
+  if(!metode) return alert("Pilih metode withdraw")
+  if(!validasiTujuan(metode, tujuan)) return alert("Nomor tujuan tidak valid")
+  if(nominal < 10000) return alert("Minimal withdraw Rp10.000")
+
+  const res = await fetch("/withdraw/create",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ metode, tujuan, nominal })
+  })
+
+  const result = await res.json()
+
+  if(!result.success){
+    alert(result.message)
+    return
+  }
+
+  successBox.style.display="block"
+
+  saldoText.innerText =
+    "Rp " + Number(result.saldo).toLocaleString("id-ID")
+
+  document.getElementById("nominal").value=""
+  document.getElementById("tujuan").value=""
+
+  loadUser()
+
+  setTimeout(()=>successBox.style.display="none",3000)
+}
+
+// auto load
+loadUser()
+
+// auto refresh saldo tiap 10 detik
+setInterval(loadUser,10000)
+</script>
+
+</body>
+</html>
