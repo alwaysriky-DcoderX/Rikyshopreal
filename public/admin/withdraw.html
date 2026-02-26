@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Withdraw Saldo - Riky Shop</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+<style>
+:root{
+--sidebar-width:260px;
+--primary:#0d6efd;
+--bg:#f5f7fb;
+}
+
+body{
+background:var(--bg);
+font-family:"Segoe UI",sans-serif;
+margin:0;
+}
+
+/* SIDEBAR */
+.vp-sidebar{
+width:var(--sidebar-width);
+height:100vh;
+position:fixed;
+left:0;
+top:0;
+background:white;
+border-right:1px solid #eee;
+z-index:1000;
+}
+
+.vp-sidebar-header{
+padding:20px;
+font-weight:700;
+font-size:18px;
+border-bottom:1px solid #eee;
+}
+
+.vp-sidebar-menu .nav-link{
+padding:12px 20px;
+color:#333;
+display:flex;
+gap:10px;
+align-items:center;
+}
+
+.vp-sidebar-menu .nav-link.active{
+background:#eef4ff;
+color:var(--primary);
+font-weight:600;
+}
+
+/* CONTENT */
+.vp-content{
+margin-left:var(--sidebar-width);
+padding:40px 20px;
+display:flex;
+justify-content:center;
+gap:30px;
+flex-wrap:wrap;
+}
+
+/* CARD */
+.vp-card{
+background:white;
+border-radius:16px;
+padding:30px;
+box-shadow:0 10px 30px rgba(0,0,0,0.06);
+width:100%;
+max-width:520px;
+}
+
+/* BALANCE */
+.balance-box{
+background:linear-gradient(135deg,#0d6efd,#4da3ff);
+color:white;
+border-radius:14px;
+padding:20px;
+text-align:center;
+margin-bottom:25px;
+}
+
+.balance-box h3{
+margin:5px 0 0;
+font-weight:700;
+}
+
+/* OPTION */
+.option{
+display:flex;
+align-items:center;
+gap:10px;
+border:2px solid #eee;
+padding:14px;
+border-radius:12px;
+cursor:pointer;
+margin-bottom:10px;
+transition:.2s;
+}
+
+.option:hover{
+border-color:var(--primary);
+background:#f0f6ff;
+}
+
+.option input{
+transform:scale(1.2);
+}
+
+/* BUTTON */
+.btn-withdraw{
+width:100%;
+border-radius:12px;
+padding:14px;
+font-weight:600;
+}
+
+/* HISTORY */
+.history-item{
+border-bottom:1px solid #eee;
+padding:10px 0;
+font-size:14px;
+}
+
+/* SUCCESS ANIMATION */
+.success-box{
+text-align:center;
+padding:20px;
+animation:pop .4s ease;
+}
+@keyframes pop{
+from{transform:scale(.7);opacity:0}
+to{transform:scale(1);opacity:1}
+}
+
+@media(max-width:992px){
+.vp-sidebar{display:none}
+.vp-content{margin-left:0;padding:20px}
+}
+</style>
+</head>
+
+<body>
+
+<nav class="vp-sidebar">
+<div class="vp-sidebar-header">Riky Shop</div>
+<div class="vp-sidebar-menu">
+<ul class="nav flex-column">
+<li><a class="nav-link" href="/dashboard"><i class="bi bi-house-door-fill"></i> Home</a></li>
+<li><a class="nav-link" href="/deposit"><i class="bi bi-wallet2"></i> Deposit</a></li>
+<li><a class="nav-link active" href="/withdraw"><i class="bi bi-arrow-down-circle-fill"></i> Withdraw</a></li>
+<li><a class="nav-link" href="/order"><i class="bi bi-cart-check-fill"></i> Order</a></li>
+</ul>
+</div>
+</nav>
+
+<div class="vp-content">
+
+<!-- FORM -->
+<div class="vp-card">
+
+<h4 class="mb-3">Withdraw Saldo</h4>
+
+<div class="balance-box">
+Saldo Anda
+<h3 id="saldoText">Memuat...</h3>
+</div>
+
+<form id="withdrawForm">
+
+<label class="fw-semibold">Pilih Metode</label>
+
+<div class="mt-2 mb-2 text-muted small">E-Wallet</div>
+
+<label class="option">
+<input type="radio" name="metode" value="DANA" checked>
+DANA
+</label>
+
+<label class="option">
+<input type="radio" name="metode" value="OVO">
+OVO
+</label>
+
+<label class="option">
+<input type="radio" name="metode" value="GOPAY">
+GoPay
+</label>
+
+<label class="option">
+<input type="radio" name="metode" value="SHOPEEPAY">
+ShopeePay
+</label>
+
+<div class="mt-3 mb-2 text-muted small">Bank Transfer</div>
+
+<label class="option">
+<input type="radio" name="metode" value="BCA">
+Bank BCA
+</label>
+
+<label class="option">
+<input type="radio" name="metode" value="BRI">
+Bank BRI
+</label>
+
+<label class="option">
+<input type="radio" name="metode" value="MANDIRI">
+Bank Mandiri
+</label>
+
+<div class="mb-3 mt-3">
+<label class="form-label">Nomor / Rekening Tujuan</label>
+<input type="text" name="tujuan" class="form-control form-control-lg" required>
+</div>
+
+<div class="mb-3">
+<label class="form-label">Nominal Withdraw</label>
+<input type="number" name="nominal" class="form-control form-control-lg" min="10000" required>
+</div>
+
+<button class="btn btn-primary btn-withdraw">
+<i class="bi bi-send"></i> Proses Withdraw
+</button>
+
+</form>
+
+<div id="result" class="mt-3"></div>
+
+</div>
+
+<!-- HISTORY -->
+<div class="vp-card">
+<h5>Riwayat Withdraw</h5>
+<div id="historyList">Memuat...</div>
+</div>
+
+</div>
+
+<script>
+const saldoText = document.getElementById("saldoText")
+const historyList = document.getElementById("historyList")
+
+async function loadSaldo(){
+const res = await fetch("/api/user/me")
+const data = await res.json()
+saldoText.innerText = "Rp " + data.saldo.toLocaleString("id-ID")
+}
+
+async function loadHistory(){
+const res = await fetch("/api/user/me")
+const data = await res.json()
+
+if(!data.historyWithdraw || data.historyWithdraw.length===0){
+historyList.innerHTML="Belum ada withdraw"
+return
+}
+
+historyList.innerHTML = data.historyWithdraw.reverse().map(w=>`
+<div class="history-item">
+<strong>Rp ${w.nominal.toLocaleString("id-ID")}</strong><br>
+${w.metode} → ${w.tujuan}<br>
+Status: <b>${w.status}</b>
+</div>
+`).join("")
+}
+
+document.getElementById("withdrawForm").addEventListener("submit", async function(e){
+e.preventDefault()
+
+const formData=new FormData(this)
+const tujuan=formData.get("tujuan")
+
+if(!/^[0-9]{8,16}$/.test(tujuan)){
+document.getElementById("result").innerHTML=`<div class="alert alert-danger">Nomor tujuan tidak valid</div>`
+return
+}
+
+const data={
+metode:formData.get("metode"),
+tujuan,
+nominal:parseInt(formData.get("nominal"))
+}
+
+const btn=this.querySelector("button")
+btn.disabled=true
+btn.innerHTML="Memproses..."
+
+try{
+const res=await fetch("/withdraw/create",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
+})
+
+const result=await res.json()
+
+if(result.success){
+document.getElementById("result").innerHTML=`
+<div class="success-box">
+<h5 class="text-success">Withdraw Berhasil</h5>
+Saldo sekarang: Rp ${result.saldo.toLocaleString("id-ID")}
+</div>`
+this.reset()
+loadSaldo()
+loadHistory()
+}else{
+document.getElementById("result").innerHTML=`<div class="alert alert-danger">${result.message}</div>`
+}
+
+}catch{
+document.getElementById("result").innerHTML=`<div class="alert alert-danger">Server error</div>`
+}
+
+btn.disabled=false
+btn.innerHTML="Proses Withdraw"
+})
+
+loadSaldo()
+loadHistory()
+</script>
+
+</body>
+</html>
