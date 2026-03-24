@@ -1,7 +1,6 @@
 const express = require("express");
 const qs = require("qs");
 const cloudscraper = require("cloudscraper");
-const axios = require("axios");
 const router = express.Router();
 
 const domain = process.env.PTERO_DOMAIN;
@@ -23,45 +22,6 @@ const cloudscraperHeaders = {
   "Content-Type": "application/x-www-form-urlencoded",
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
 };
-
-const PAYDIGITAL_BASE_URL = process.env.PAYDIGITAL_BASE_URL || "https://paydigital.biz.id";
-const PAYDIGITAL_API_KEY = process.env.PAYDIGITAL_API_KEY;
-const PAYDIGITAL_DEFAULT_SERVER = parseInt(process.env.PAYDIGITAL_DEFAULT_SERVER || "1");
-const PAYDIGITAL_DEFAULT_QRISTYPE = process.env.PAYDIGITAL_DEFAULT_QRISTYPE || "1";
-
-async function payDigitalRequest(config) {
-  if (!PAYDIGITAL_API_KEY) {
-    const err = new Error("PAYDIGITAL_API_KEY belum di-set");
-    err.statusCode = 500;
-    throw err;
-  }
-  const resp = await axios({
-    timeout: 30000,
-    baseURL: PAYDIGITAL_BASE_URL,
-    headers: {
-      "x-api-key": PAYDIGITAL_API_KEY,
-      ...(config.headers || {}),
-    },
-    ...config,
-  });
-  return resp.data;
-}
-
-function parsePayDigitalMetode(metode) {
-  if (!metode || typeof metode !== "string") {
-    return { server: PAYDIGITAL_DEFAULT_SERVER, qristype: PAYDIGITAL_DEFAULT_QRISTYPE };
-  }
-  const normalized = metode.startsWith("PAYDIGITAL:") ? metode.replace("PAYDIGITAL:", "") : metode;
-  const parts = normalized.split(":");
-  if (parts.length >= 2 && parts[0] && parts[1]) {
-    const s = parseInt(parts[0]);
-    return {
-      server: Number.isFinite(s) ? s : PAYDIGITAL_DEFAULT_SERVER,
-      qristype: parts[1] || PAYDIGITAL_DEFAULT_QRISTYPE,
-    };
-  }
-  return { server: PAYDIGITAL_DEFAULT_SERVER, qristype: PAYDIGITAL_DEFAULT_QRISTYPE };
-}
 
 router.get("/profile", validateApiKey, async (req, res) => {
   try {
@@ -133,47 +93,60 @@ router.get("/mutasi", validateApiKey, async (req, res) => {
 
 router.get("/deposit/metode", validateApiKey, async (req, res) => {
   try {
+    const formData = {
+      api_key: process.env.ATLAN_API_KEY,
+    };
+
+    const response = await cloudscraper.post("https://atlantich2h.com/deposit/metode", {
+      body: qs.stringify(formData),
+      headers: cloudscraperHeaders,
+    });
+
+    const result = JSON.parse(response);
+
+    if (!result.status || !Array.isArray(result.data)) {
+      return res.status(502).json({
+        success: false,
+        message: "Respon dari server utama tidak valid.",
+      });
+    }
+
     const role = req.user?.role || "user";
     let tambahanPersen = 0;
     if (role === "user") tambahanPersen = 0.2;
     if (role === "reseller") tambahanPersen = 0.1;
 
-    const channelsResp = await payDigitalRequest({
-      method: "GET",
-      url: "/api/payment-channels",
-    });
-    if (!channelsResp?.ok || !Array.isArray(channelsResp?.data)) {
-      return res.status(502).json({
-        success: false,
-        message: channelsResp?.error || "Respon dari PayDigital tidak valid.",
-      });
-    }
+    const blacklist = ["OVO", "QRIS", "DANA", "ovo", "MANDIRI", "PERMATA"];
 
-    const fullUrl = `${req.protocol}://${req.get("host")}`;
-    const isChannelActive = (ch) => {
-      if (typeof ch?.active === "boolean") return ch.active;
-      if (typeof ch?.status === "boolean") return ch.status;
-      if (typeof ch?.status === "string") return ch.status.toLowerCase() === "active";
-      return true;
-    };
+    const metodeFormatted = result.data
+      .filter((item) => !blacklist.includes(item.metode?.toUpperCase()))
+      .map((item) => {
+        const metodeUpper = item.metode?.toUpperCase();
+        const localImageMap = {
+          BCA: "/media/metode/bca.png",
+          BRI: "/media/metode/bri.png",
+          BNI: "/media/metode/bni.png",
+          SHOPEEPAY: "/media/metode/shopeepay.png",
+          LINKAJA: "/media/metode/linkaja.png",
+          QRISFAST: "/media/metode/qrisfast.png",
+        };
+        const fullUrl = `${req.protocol}://${req.get("host")}`;
 
-    const channels = channelsResp.data;
-    const activeChannels = Array.isArray(channels) ? channels.filter(isChannelActive) : [];
-    const channelsToUse = activeChannels.length > 0 ? activeChannels : channels;
+        const baseFee = parseFloat(item.fee_persen) || 0;
+        const adjustedFee = (baseFee + tambahanPersen).toFixed(2);
 
-    const metodeFormatted = (channelsToUse || [])
-      .map((ch) => {
-        const feePersen = (0 + tambahanPersen).toFixed(2);
         return {
-          metode: `PAYDIGITAL:${ch.server}:${ch.qristype}`,
-          type: "qris",
-          name: `${ch.name || `Server ${ch.server}`} (${ch.code || "QRIS"})`,
-          min: 500,
-          max: 100000000,
-          fee: 250,
-          fee_persen: feePersen,
-          status: ch.status,
-          img_url: `${fullUrl}/media/metode/qrisfast.png`,
+          metode: item.metode,
+          type: item.type,
+          name: item.name,
+          min: item.min,
+          max: item.max,
+          fee: item.fee,
+          fee_persen: adjustedFee,
+          status: item.status,
+          img_url: localImageMap[metodeUpper] ?
+            `${fullUrl}${localImageMap[metodeUpper]}` :
+            `${fullUrl}/media/metode/default.png`,
         };
       });
 
@@ -183,12 +156,10 @@ router.get("/deposit/metode", validateApiKey, async (req, res) => {
       metode: metodeFormatted,
     });
   } catch (error) {
-    const providerError = error?.response?.data || null;
-    console.error("[H2H/DEPOSIT/METODE] gagal ambil metode:", providerError || error.message);
     res.status(500).json({
       success: false,
-      message: providerError?.error || providerError?.message || error.message || "Gagal mengambil metode deposit",
-      error: providerError || error.message,
+      message: "Gagal mengambil metode deposit",
+      error: error?.response?.data || error.message,
     });
   }
 });
@@ -210,45 +181,81 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
   }
 
   const parsedNominal = parseInt(nominal);
-  const minDepositForMetode = 500;
+  let selectedMetodeCode = "QRISFAST";
+  let selectedMetodeType = "ewallet";
+  let minDepositForMetode = 500;
+
+  if (metodePilihanPengguna) {
+    try {
+      const metodeResponse = await cloudscraper.post(`${BASE_URL}/deposit/metode`, {
+        body: qs.stringify({
+          api_key: process.env.ATLAN_API_KEY
+        }),
+        headers: cloudscraperHeaders,
+      });
+
+      const parsedMetode = JSON.parse(metodeResponse);
+      const allMetode = parsedMetode?.data || [];
+
+      const foundMetode = allMetode.find(
+        (m) =>
+        m.metode?.toUpperCase() === metodePilihanPengguna.toUpperCase() &&
+        (m.status?.toLowerCase() === "aktif" || m.status?.toLowerCase() === "on")
+      );
+
+      if (!foundMetode) {
+        return res.status(400).json({
+          success: false,
+          message: `Metode '${metodePilihanPengguna}' tidak ditemukan atau tidak aktif.`,
+        });
+      }
+
+      selectedMetodeCode = foundMetode.metode;
+      selectedMetodeType = foundMetode.type;
+      minDepositForMetode = parseInt(foundMetode.min) || 0;
+    } catch (err) {
+      return res.status(502).json({
+        success: false,
+        message: "Gagal mengambil data metode dari provider.",
+        error: err.response?.data || err.message,
+      });
+    }
+  }
+
   if (parsedNominal < minDepositForMetode) {
     return res.status(400).json({
       success: false,
-      message: `Nominal minimal deposit adalah ${minDepositForMetode}. Nominal Anda: ${parsedNominal}.`,
+      message: `Nominal minimal untuk metode ${selectedMetodeCode} adalah ${minDepositForMetode}. Nominal Anda: ${parsedNominal}.`,
     });
   }
 
-  try {
-    const { server, qristype } = parsePayDigitalMetode(metodePilihanPengguna);
-    const note = `Deposit ${user.username || user.email || user._id}`;
+  const reff_id = generateReffId();
+  const formData = {
+    api_key: process.env.ATLAN_API_KEY,
+    reff_id,
+    nominal: parsedNominal,
+    type: selectedMetodeType,
+    metode: selectedMetodeCode,
+  };
 
-    const createResp = await payDigitalRequest({
-      method: "POST",
-      url: "/createqris",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      data: {
-        amount: parsedNominal,
-        note,
-        server,
-        qristype,
-      },
+  try {
+    const depositResponse = await cloudscraper.post(`${BASE_URL}/deposit/create`, {
+      body: qs.stringify(formData),
+      headers: cloudscraperHeaders,
     });
 
-    if (!createResp?.ok || !createResp?.tx) {
+    const result = JSON.parse(depositResponse);
+    if (!result?.status || !result?.data) {
       return res.status(502).json({
         success: false,
-        message: createResp?.error || "Gagal membuat QRIS PayDigital.",
-        error: createResp,
+        message: result?.message || "Gagal membuat deposit.",
+        error: result?.data || result,
       });
     }
 
-    const tx = createResp.tx;
-    const payment = createResp.payment || {};
-
-    const originalFee = parseInt(tx.fee) || 250;
-    const originalGetBalance = parsedNominal;
+    const d = result.data;
+    const originalFee = parseInt(d.fee) || 0;
+    const originalGetBalance = parseInt(d.get_balance) || 0;
 
     let additionalFee = 0;
     if (user.role === "user") {
@@ -261,19 +268,19 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
     const finalBalance = originalGetBalance - additionalFee;
 
     const history = {
-      id: tx.id,
-      reff_id: tx.ref_id,
-      nominal: parsedNominal,
-      tambahan: 0,
+      id: d.id,
+      reff_id: d.reff_id,
+      nominal: parseInt(d.nominal) || 0,
+      tambahan: parseInt(d.tambahan) || 0,
       fee: totalFee,
       get_balance: finalBalance,
-      metode: `PAYDIGITAL:${server}:${qristype}`,
-      bank: null,
-      tujuan: tx.pay_url || null,
-      atas_nama: null,
-      status: "pending",
-      qr_image: payment.qr_link || null,
-      created_at: tx.createdAt ? new Date(tx.createdAt) : new Date(),
+      metode: selectedMetodeCode,
+      bank: d.bank || null,
+      tujuan: d.tujuan || d.nomor_va || null,
+      atas_nama: d.atas_nama || null,
+      status: d.status,
+      qr_image: d.qr_image || d.url || null,
+      created_at: d.created_at ? new Date(d.created_at) : new Date(),
     };
 
     await tambahHistoryDeposit(user._id, history);
@@ -281,33 +288,30 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        id: tx.id,
-        reff_id: tx.ref_id,
-        nominal: parsedNominal,
+        ...d,
         fee: totalFee,
         get_balance: finalBalance,
-        metode: history.metode,
-        status: history.status,
-        qr_image: history.qr_image,
-        pay_url: tx.pay_url,
-        expired_at: tx.expiredAt,
       },
     });
 
     const intervalId = setInterval(async () => {
       try {
-        const statusData = await payDigitalRequest({
-          method: "GET",
-          url: "/statusqris",
-          params: { id: tx.id },
+        const statusRes = await cloudscraper.post(`${BASE_URL}/deposit/status`, {
+          body: qs.stringify({
+            api_key: process.env.ATLAN_API_KEY,
+            id: d.id,
+          }),
+          headers: cloudscraperHeaders,
         });
-        if (statusData?.success && statusData?.tx) {
-          const payStatus = (statusData.tx.status || "").toUpperCase();
-          const currStatus = payStatus === "PAID" ? "success" : payStatus === "EXPIRED" ? "expired" : "pending";
+
+        const statusData = JSON.parse(statusRes);
+        if (statusData?.status && statusData?.data) {
+          const currStatus = statusData.data.status;
+          const currBalance = parseInt(statusData.data.get_balance) || 0;
 
           const userCheck = await User.findOne({
             _id: user._id,
-            "historyDeposit.id": tx.id
+            "historyDeposit.id": d.id
           }, {
             "historyDeposit.$": 1,
             saldo: 1
@@ -315,7 +319,7 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
           const txInDb = userCheck?.historyDeposit?.[0];
 
           if (txInDb && txInDb.status !== currStatus) {
-            await editHistoryDeposit(user._id, tx.id, currStatus);
+            await editHistoryDeposit(user._id, d.id, currStatus);
           }
 
           if (currStatus === "success" && txInDb?.status !== "success") {
@@ -332,7 +336,7 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
         }
       } catch (pollErr) {
         console.error(
-          `Gagal polling status deposit ID ${tx.id}:`,
+          `Gagal polling status deposit ID ${d.id}:`,
           pollErr.response?.data || pollErr.message
         );
       }
@@ -343,179 +347,6 @@ router.get("/deposit/create", validateApiKey, async (req, res) => {
       success: false,
       message: apiError?.message || "Terjadi kesalahan saat membuat deposit.",
       error: apiError || error.message,
-    });
-  }
-});
-
-router.get("/withdraw/create", validateApiKey, async (req, res) => {
-  const { user } = req;
-  const { nominal, metode, rekening, nama } = req.query;
-
-  if (!nominal || isNaN(nominal)) {
-    return res.status(400).json({
-      success: false,
-      message: "Nominal harus berupa angka",
-    });
-  }
-
-  const amount = parseInt(nominal);
-
-  if (amount <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: "Nominal tidak valid",
-    });
-  }
-
-  if (!metode || !rekening || !nama) {
-    return res.status(400).json({
-      success: false,
-      message: "Metode, rekening, dan nama wajib diisi",
-    });
-  }
-
-  if (user.saldo < amount) {
-    return res.status(400).json({
-      success: false,
-      message: "Saldo tidak mencukupi",
-    });
-  }
-
-  const reff_id = generateReffId();
-
-  const formData = {
-    api_key: process.env.ATLAN_API_KEY,
-    reff_id,
-    nominal: amount,
-    metode,
-    rekening,
-    nama,
-  };
-
-  try {
-    const response = await cloudscraper.post(`${BASE_URL}/withdraw/create`, {
-      body: qs.stringify(formData),
-      headers: cloudscraperHeaders,
-    });
-
-    const result = JSON.parse(response);
-
-    if (!result?.status || !result?.data) {
-      return res.status(502).json({
-        success: false,
-        message: result?.message || "Gagal membuat withdraw",
-        error: result,
-      });
-    }
-
-    const wd = result.data;
-
-    // potong saldo user
-    await User.findByIdAndUpdate(user._id, {
-      $inc: { saldo: -amount },
-    });
-
-    const history = {
-      id: wd.id,
-      reff_id: wd.reff_id,
-      nominal: amount,
-      metode,
-      rekening,
-      nama,
-      status: wd.status,
-      created_at: new Date(),
-    };
-
-    await tambahHistoryOrder(user._id, history);
-
-    res.status(200).json({
-      success: true,
-      data: wd,
-    });
-
-    // polling status withdraw
-    const intervalId = setInterval(async () => {
-      try {
-        const statusRes = await cloudscraper.post(`${BASE_URL}/withdraw/status`, {
-          body: qs.stringify({
-            api_key: process.env.ATLAN_API_KEY,
-            id: wd.id,
-          }),
-          headers: cloudscraperHeaders,
-        });
-
-        const statusData = JSON.parse(statusRes);
-
-        if (statusData?.status && statusData?.data) {
-          const currStatus = statusData.data.status;
-
-          await editHistoryOrder(user._id, wd.id, {
-            status: currStatus,
-          });
-
-          if (currStatus === "failed" || currStatus === "cancel") {
-            // refund saldo
-            await User.findByIdAndUpdate(user._id, {
-              $inc: { saldo: amount },
-            });
-          }
-
-          if (["success", "failed", "cancel"].includes(currStatus)) {
-            clearInterval(intervalId);
-          }
-        }
-      } catch (err) {
-        console.error("Polling withdraw error:", err.message);
-      }
-    }, 3000);
-
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.response?.data?.message || "Withdraw gagal",
-      error: error.message,
-    });
-  }
-});
-
-router.get("/withdraw/status", validateApiKey, async (req, res) => {
-  const { id } = req.query;
-
-  if (!id) {
-    return res.status(400).json({
-      success: false,
-      message: "ID withdraw harus diisi",
-    });
-  }
-
-  try {
-    const response = await cloudscraper.post(`${BASE_URL}/withdraw/status`, {
-      body: qs.stringify({
-        api_key: process.env.ATLAN_API_KEY,
-        id,
-      }),
-      headers: cloudscraperHeaders,
-    });
-
-    const result = JSON.parse(response);
-
-    if (!result?.status || !result?.data) {
-      return res.status(502).json({
-        success: false,
-        message: "Gagal cek status withdraw",
-        error: result,
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: result.data,
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
     });
   }
 });
@@ -550,31 +381,48 @@ router.get("/deposit/status", validateApiKey, async (req, res) => {
       });
     }
 
-    const statusResp = await payDigitalRequest({
-      method: "GET",
-      url: "/statusqris",
-      params: { id },
+    const formDataToAtlantic = {
+      api_key: process.env.ATLAN_API_KEY,
+      id,
+    };
+
+    const atlanticResponse = await cloudscraper.post(`${BASE_URL}/deposit/status`, {
+      body: qs.stringify(formDataToAtlantic),
+      headers: cloudscraperHeaders,
     });
-    if (!statusResp?.success || !statusResp?.tx) {
+
+    const resultFromAtlantic = JSON.parse(atlanticResponse);
+
+    if (!resultFromAtlantic || !resultFromAtlantic.status || !resultFromAtlantic.data) {
       return res.status(502).json({
         success: false,
-        message: statusResp?.error || "Gagal memeriksa status deposit ke provider.",
-        error: statusResp,
+        message: resultFromAtlantic?.data?.message ||
+          resultFromAtlantic?.message ||
+          "Gagal memeriksa status deposit ke provider.",
+        error: resultFromAtlantic?.data || resultFromAtlantic,
       });
     }
-    const payStatus = (statusResp.tx.status || "").toUpperCase();
-    const mappedStatus = payStatus === "PAID" ? "success" : payStatus === "EXPIRED" ? "expired" : "pending";
+
+    const depositDetails = resultFromAtlantic.data;
+    const originalGetBalance = parseInt(depositDetails.get_balance) || 0;
+
+    let finalBalance = originalGetBalance;
+    if (user.role === "user") {
+      finalBalance = Math.floor(originalGetBalance * 0.998);
+    } else if (user.role === "reseller") {
+      finalBalance = Math.floor(originalGetBalance * 0.999);
+    }
 
     const responseData = {
-      id: statusResp.tx.id,
-      reff_id: null,
-      nominal: parseInt(statusResp.tx.amount) || 0,
-      tambahan: 0,
-      fee: 250,
-      get_balance: parseInt(statusResp.tx.amount) || 0,
-      metode: null,
-      status: mappedStatus,
-      created_at: statusResp.tx.createdAt || null,
+      id: depositDetails.id,
+      reff_id: depositDetails.reff_id,
+      nominal: parseInt(depositDetails.nominal) || 0,
+      tambahan: parseInt(depositDetails.tambahan) || 0,
+      fee: parseInt(depositDetails.fee) || 0,
+      get_balance: finalBalance,
+      metode: depositDetails.metode,
+      status: depositDetails.status,
+      created_at: depositDetails.created_at,
     };
 
     return res.status(200).json({
@@ -623,28 +471,35 @@ router.get("/deposit/cancel", validateApiKey, async (req, res) => {
       });
     }
 
-    const cancelResp = await payDigitalRequest({
-      method: "POST",
-      url: "/cancelqris",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      data: { id },
+    const formDataToAtlantic = {
+      api_key: process.env.ATLAN_API_KEY,
+      id,
+    };
+
+    const atlanticResponse = await cloudscraper.post(`${BASE_URL}/deposit/cancel`, {
+      body: qs.stringify(formDataToAtlantic),
+      headers: cloudscraperHeaders,
     });
-    if (!cancelResp?.success) {
+
+    const resultFromAtlantic = JSON.parse(atlanticResponse);
+
+    if (!resultFromAtlantic || !resultFromAtlantic.status || !resultFromAtlantic.data) {
       return res.status(502).json({
         success: false,
-        message: cancelResp?.error || "Gagal membatalkan deposit.",
-        error: cancelResp,
+        message: resultFromAtlantic?.data?.message ||
+          resultFromAtlantic?.message ||
+          "Gagal membatalkan deposit.",
+        error: resultFromAtlantic?.data || resultFromAtlantic,
       });
     }
 
+    const cancelDetails = resultFromAtlantic.data;
     return res.status(200).json({
       success: true,
       data: {
-        id,
-        status: "cancel",
-        created_at: new Date(),
+        id: cancelDetails.id,
+        status: cancelDetails.status,
+        created_at: cancelDetails.created_at,
       },
     });
   } catch (error) {
